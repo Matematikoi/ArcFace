@@ -6,8 +6,10 @@ from torch.utils import data
 import torch.nn.functional as F
 from models import *
 import torchvision
-from utils import Visualizer, view_model
+# from utils import Visualizer, view_model
 import torch
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
 import numpy as np
 import random
 import time
@@ -22,6 +24,26 @@ def save_model(model, save_path, name, iter_cnt):
     torch.save(model.state_dict(), save_name)
     return save_name
 
+def load_data(train_folder, batch_size):
+    """
+    Loads and preprocesses the training and testing datasets
+    from the specified folders. It applies transformations to resize the images,
+    convert them to tensors, and normalize the pixel values.
+     
+    It returns DataLoader objects for both datasets to facilitate mini-batch 
+    processing during training and evaluation.
+    """
+    transform = transforms.Compose([
+        transforms.Resize((112, 112)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+    ])
+
+    train_dataset = datasets.ImageFolder(root=train_folder, transform=transform)
+
+    # TODO : add opt num_worker
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=12)
+    return train_loader
 
 if __name__ == '__main__':
 
@@ -29,12 +51,13 @@ if __name__ == '__main__':
     if opt.display:
         visualizer = Visualizer()
     device = torch.device("cuda")
-
-    train_dataset = Dataset(opt.train_root, opt.train_list, phase='train', input_shape=opt.input_shape)
-    trainloader = data.DataLoader(train_dataset,
-                                  batch_size=opt.train_batch_size,
-                                  shuffle=True,
-                                  num_workers=opt.num_workers)
+    
+    trainloader = load_data(opt.train_root, 64)
+    # train_dataset = Dataset(opt.train_root, opt.train_list, phase='train', input_shape=opt.input_shape)
+    # trainloader = data.DataLoader(train_dataset,
+    #                               batch_size=opt.train_batch_size,
+    #                               shuffle=True,
+    #                               num_workers=opt.num_workers)
 
     identity_list = get_lfw_list(opt.lfw_test_list)
     img_paths = [os.path.join(opt.lfw_root, each) for each in identity_list]
@@ -84,6 +107,9 @@ if __name__ == '__main__':
         model.train()
         for ii, data in enumerate(trainloader):
             data_input, label = data
+            if data_input.shape[1] != 3 :
+                print("TRAIN", data_input.shape)
+                continue
             data_input = data_input.to(device)
             label = label.to(device).long()
             feature = model(data_input)
@@ -115,6 +141,6 @@ if __name__ == '__main__':
             save_model(model, opt.checkpoints_path, opt.backbone, i)
 
         model.eval()
-        acc = lfw_test(model, img_paths, identity_list, opt.lfw_test_list, opt.test_batch_size)
-        if opt.display:
-            visualizer.display_current_results(iters, acc, name='test_acc')
+        # acc = lfw_test(model, img_paths, identity_list, opt.lfw_test_list, opt.test_batch_size)
+        # if opt.display:
+        #     visualizer.display_current_results(iters, acc, name='test_acc')
