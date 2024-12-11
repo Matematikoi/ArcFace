@@ -17,14 +17,14 @@ from config import Config
 from torch.nn import DataParallel
 from torch.optim.lr_scheduler import StepLR
 from test import *
-
+from torchsummary import summary
 
 def save_model(model, save_path, name, iter_cnt):
     save_name = os.path.join(save_path, name + '_' + str(iter_cnt) + '.pth')
     torch.save(model.state_dict(), save_name)
     return save_name
 
-def load_data(train_folder, batch_size):
+def load_data(train_folder, opt):
     """
     Loads and preprocesses the training and testing datasets
     from the specified folders. It applies transformations to resize the images,
@@ -42,7 +42,7 @@ def load_data(train_folder, batch_size):
     train_dataset = datasets.ImageFolder(root=train_folder, transform=transform)
 
     # TODO : add opt num_worker
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=12)
+    train_loader = DataLoader(train_dataset, batch_size=opt.train_batch_size, shuffle=True, num_workers=12)
     return train_loader
 
 if __name__ == '__main__':
@@ -52,7 +52,7 @@ if __name__ == '__main__':
         visualizer = Visualizer()
     device = torch.device("cuda")
     
-    trainloader = load_data(opt.train_root, 64)
+    trainloader = load_data(opt.train_root, opt)
     # train_dataset = Dataset(opt.train_root, opt.train_list, phase='train', input_shape=opt.input_shape)
     # trainloader = data.DataLoader(train_dataset,
     #                               batch_size=opt.train_batch_size,
@@ -71,6 +71,7 @@ if __name__ == '__main__':
 
     if opt.backbone == 'resnet18':
         model = resnet_face18(use_se=opt.use_se)
+        # summary(model, (3,112,112))
     elif opt.backbone == 'resnet34':
         model = resnet34()
     elif opt.backbone == 'resnet50':

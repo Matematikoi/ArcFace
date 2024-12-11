@@ -2,7 +2,7 @@ class Config(object):
     env = 'default'
     backbone = 'resnet18'
     classify = 'softmax'
-    num_classes = 5751
+    num_classes = 10572
     metric = 'arc_margin'
     easy_margin = False
     use_se = False
@@ -12,11 +12,11 @@ class Config(object):
     finetune = False
 
     # /home/mathos/Documents/cs/bdrp/repos/arcface-pytorch
-    train_root = './data/imgs_/'
+    train_root = './data/imgs_subset_complete/train/'
     train_list = './lfw_test_pair.txt'
     val_list = './lfw_test_pair.txt'
 
-    test_root = './data/imgs_/'
+    test_root = './data/imgs_subset/test'
     test_list = './lfw_test_pair.txt'
 
     lfw_root = './data/imgs_/'
@@ -25,12 +25,12 @@ class Config(object):
     checkpoints_path = 'checkpoints'
     # load_model_path = 'models/resnet18.pth'
     # test_model_path = 'checkpoints/resnet18_110.pth'
-    save_interval = 10
+    save_interval = 1
 
-    train_batch_size = 16  # batch size
-    test_batch_size = 60
+    train_batch_size = 64  # batch size
+    test_batch_size = 64
 
-    input_shape = (1, 112, 112)
+    input_shape = (3, 112, 112)
 
     optimizer = 'sgd'
 
@@ -42,7 +42,7 @@ class Config(object):
     debug_file = '/tmp/debug'  # if os.path.exists(debug_file): enter ipdb
     result_file = 'result.csv'
 
-    max_epoch = 50
+    max_epoch = 30
     lr = 1e-1  # initial learning rate
     lr_step = 10
     lr_decay = 0.95  # when val_loss increase, lr = lr*lr_decay
