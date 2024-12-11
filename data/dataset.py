@@ -5,7 +5,6 @@ from torch.utils import data
 import numpy as np
 from torchvision import transforms as T
 import torchvision
-import cv2
 import sys
 
 
@@ -78,7 +77,5 @@ if __name__ == '__main__':
         img = img.astype(np.uint8)
         img = img[:, :, [2, 1, 0]]
 
-        cv2.imshow('img', img)
-        cv2.waitKey()
         # break
         # dst.decode_segmap(labels.numpy()[0], plot=True)

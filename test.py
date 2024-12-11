@@ -48,6 +48,7 @@ def get_featurs(model, test_list, batch_size=10):
     features = None
     cnt = 0
     for i, img_path in enumerate(test_list):
+
         image = load_image(img_path)
         if image is None:
             print('read {} error'.format(img_path))
@@ -62,6 +63,10 @@ def get_featurs(model, test_list, batch_size=10):
 
             data = torch.from_numpy(images)
             data = data.to(torch.device("cuda"))
+            if data.shape[1] != 3 :
+                print("TEST", data.shape)
+                continue
+
             output = model(data)
             output = output.data.cpu().numpy()
 
