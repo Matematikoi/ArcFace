@@ -6,20 +6,20 @@ class Config(object):
     metric = 'arc_margin'
     easy_margin = False
     use_se = False
-    loss = 'focal_loss'
+    loss = 'cross_entropy'
 
     display = False
     finetune = False
 
     # /home/mathos/Documents/cs/bdrp/repos/arcface-pytorch
-    train_root = './data/imgs_subset_complete/train/'
+    train_root = './data/imgs_subset/train/'
     train_list = './lfw_test_pair.txt'
     val_list = './lfw_test_pair.txt'
 
     test_root = './data/imgs_subset/test'
     test_list = './lfw_test_pair.txt'
 
-    lfw_root = './data/imgs_/'
+    lfw_root = './data/imgs_subset/'
     lfw_test_list = './lfw_test_pair.txt'
 
     checkpoints_path = 'checkpoints'
@@ -28,7 +28,7 @@ class Config(object):
     save_interval = 1
 
     train_batch_size = 64  # batch size
-    test_batch_size = 64
+    test_batch_size = 256
 
     input_shape = (3, 112, 112)
 
@@ -43,7 +43,7 @@ class Config(object):
     result_file = 'result.csv'
 
     max_epoch = 30
-    lr = 1e-1  # initial learning rate
+    lr = 0.25  # initial learning rate
     lr_step = 10
     lr_decay = 0.95  # when val_loss increase, lr = lr*lr_decay
     weight_decay = 5e-4
