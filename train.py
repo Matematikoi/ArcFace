@@ -94,11 +94,11 @@ if __name__ == '__main__':
 
     if opt.optimizer == 'sgd':
         optimizer = torch.optim.SGD([{'params': model.parameters()}, {'params': metric_fc.parameters()}],
-                                    lr=opt.lr, weight_decay=opt.weight_decay)
+                                    lr=opt.lr, weight_decay=opt.weight_decay, momentum=opt.momentum)
     else:
         optimizer = torch.optim.Adam([{'params': model.parameters()}, {'params': metric_fc.parameters()}],
                                      lr=opt.lr, weight_decay=opt.weight_decay)
-    scheduler = StepLR(optimizer, step_size=opt.lr_step, gamma=0.1)
+    scheduler = StepLR(optimizer, step_size=opt.lr_step, gamma=opt.lr_decay)
 
     start = time.time()
     for i in range(opt.max_epoch):
@@ -117,6 +117,7 @@ if __name__ == '__main__':
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            scheduler.step()
 
             iters = i * len(trainloader) + ii
 
@@ -134,7 +135,6 @@ if __name__ == '__main__':
 
                 start = time.time()
 
-        scheduler.step()
         if i % opt.save_interval == 0 or i == opt.max_epoch:
             save_model(model, opt.checkpoints_path, opt.backbone, i)
 
