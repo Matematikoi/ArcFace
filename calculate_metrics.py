@@ -174,7 +174,7 @@ def get_distances_from_df(df, transform, model):
 
 def main():
     np.random.seed(88)
-    model_path = 'checkpoints/resnet18_29.pth'
+    model_path = 'checkpoints/resnet18_99.pth'
     model = load_model_from_checkpoint(model_path)
     validation_folder = 'data/imgs_subset_complete/validation'
 
