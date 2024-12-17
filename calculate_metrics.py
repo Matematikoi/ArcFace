@@ -1,6 +1,7 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torchvision import transforms
 from models import *
 from sklearn.model_selection import KFold
@@ -167,8 +168,8 @@ def get_distances_from_df(df, transform, model):
 	for i in tqdm(range(len(df))):
 		image_path_1 = f'./data/RFW/aligned_imgs/{'_'.join(df.iloc[i].img_1.split('_')[0:-1])}-{df.iloc[i].ethnicity.split(' ')[0]}/{df.iloc[i].img_1}'
 		image_path_2 = f'./data/RFW/aligned_imgs/{'_'.join(df.iloc[i].img_2.split('_')[0:-1])}-{df.iloc[i].ethnicity.split(' ')[-1]}/{df.iloc[i].img_2}'
-		embedding_2 = get_embedding(image_path_2, transform, model)
-		embedding_1 = get_embedding(image_path_1, transform, model)
+		embedding_2 = F.normalize(get_embedding(image_path_2, transform, model))
+		embedding_1 = F.normalize(get_embedding(image_path_1, transform, model))
 		distances.append(l2_distance_torch(embedding_1, embedding_2))
 	return distances
 
@@ -186,7 +187,7 @@ def main():
     df = pd.read_csv('./data/RFW/rfw.csv')
     distances = get_distances_from_df(df, transform, model)
     df['dist'] = distances
-    df['dist'] = df['dist'] / df['dist'].mean()
+    # df['dist'] = df['dist'] / df['dist'].mean()
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     df[['img_1', 'img_2', 'dist']].to_csv(f'../FaVFA/model_results/results_arcface_{timestamp}.csv', index=False)
 
