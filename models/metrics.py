@@ -7,6 +7,43 @@ from torch.nn import Parameter
 import math
 
 
+class BiasLoss(nn.Module):
+    r"""Implement bias loss with arcface margin :
+        Args:
+            total_in_features: size of each input sample
+            arcface_in_features: size of the input sample for arcface
+            out_features: size of each output sample for the classification task
+            s: norm of input feature (kwargs)
+            m: margin (kwargs)
+
+            cos(theta + m)
+        """
+
+    def __init__(self, total_in_features, arcface_in_features, out_features , **kwargs):
+        super(BiasLoss, self).__init__()
+        # Arcface loss
+        self.arcface_margin = ArcMarginProduct(arcface_in_features, out_features, **kwargs)
+        self.total_in_features = total_in_features
+        self.arcface_in_features = arcface_in_features
+
+        # Bias Loss 
+        self.bias_in_features = total_in_features - arcface_in_features
+        self.fc1 = nn.Linear(self.bias_in_features, 128)
+        self.fc2 = nn.Linear(128, 1)
+        self.relu = nn.ReLU()
+
+    def forward(self, input, label):
+        x_bias = input[:,self.arcface_in_features:]
+        x_arcface = input[:,:self.arcface_in_features]
+
+        x_bias = self.fc1(x_bias)  # First layer
+        x_bias = self.relu(x_bias)  # Activation
+        x_bias = self.fc2(x_bias)  # Output layer
+        
+        x_arcface = self.arcface_margin(x_arcface, label)
+
+        return x_bias, x_arcface
+
 class ArcMarginProduct(nn.Module):
     r"""Implement of large margin arc distance: :
         Args:

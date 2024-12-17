@@ -3,7 +3,7 @@ class Config(object):
     backbone = 'resnet18'
     classify = 'softmax'
     num_classes = 2000
-    metric = 'arc_margin'
+    metric = 'bias'
     easy_margin = False
     use_se = False
     loss = 'cross_entropy'
@@ -48,3 +48,5 @@ class Config(object):
     lr_decay = 0.95  # when val_loss increase, lr = lr*lr_decay
     weight_decay = 5e-4
     momentum=0.4
+
+    bias_model_lambda = 0.5

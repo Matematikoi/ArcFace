@@ -67,6 +67,7 @@ if __name__ == '__main__':
         criterion = FocalLoss(gamma=2)
     else:
         criterion = torch.nn.CrossEntropyLoss()
+        criterion_no_reduction = torch.nn.CrossEntropyLoss(reduction = 'none')
 
     if opt.backbone == 'resnet18':
         model = resnet_face18(use_se=opt.use_se)
@@ -82,6 +83,8 @@ if __name__ == '__main__':
         metric_fc = ArcMarginProduct(512, opt.num_classes, s=30, m=0.5, easy_margin=opt.easy_margin)
     elif opt.metric == 'sphere':
         metric_fc = SphereProduct(512, opt.num_classes, m=4)
+    elif opt.metric == 'bias':
+        metric_fc = BiasLoss(512, 256, opt.num_classes, s=30, m=0.5, easy_margin= opt.easy_margin)
     else:
         metric_fc = nn.Linear(512, opt.num_classes)
 
@@ -112,8 +115,14 @@ if __name__ == '__main__':
             data_input = data_input.to(device)
             label = label.to(device).long()
             feature = model(data_input)
-            output = metric_fc(feature, label)
-            loss = criterion(output, label)
+            if opt.metric == 'bias':
+                bias, output = metric_fc(feature, label)
+                loss_arcface = criterion_no_reduction(output, label)
+                loss_prediction = ((bias-loss_arcface) ** 2).mean()
+                loss = criterion(output,label) + opt.bias_model_lambda * loss_prediction
+            else: 
+                output = metric_fc(feature, label)
+                loss = criterion(output, label)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -128,15 +137,18 @@ if __name__ == '__main__':
                 acc = np.mean((output == label).astype(int))
                 speed = opt.print_freq / (time.time() - start)
                 time_str = time.asctime(time.localtime(time.time()))
-                print('{} train epoch {} iter {} {} iters/s loss {} acc {}'.format(time_str, i, ii, speed, loss.item(), acc))
+                if opt.metric !='bias':
+                    print('{} train epoch {} iter {} {} iters/s loss {} acc {}'.format(time_str, i, ii, speed, loss.item(), acc))
+                else : 
+                    print('{} train epoch {} iter {} {} iters/s loss total {} loss prediction {} acc {}'.format(time_str, i, ii, speed, loss.item(),loss_prediction.item(), acc))
                 if opt.display:
                     visualizer.display_current_results(iters, loss.item(), name='train_loss')
                     visualizer.display_current_results(iters, acc, name='train_acc')
 
                 start = time.time()
 
-        if i % opt.save_interval == 0 or i == opt.max_epoch:
-            save_model(model, opt.checkpoints_path, opt.backbone, i)
+        # if i % opt.save_interval == 0 or i == opt.max_epoch:
+        #     save_model(model, opt.checkpoints_path, opt.backbone, i)
 
         model.eval()
         test_acc = []
