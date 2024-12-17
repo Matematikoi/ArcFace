@@ -49,4 +49,4 @@ class Config(object):
     weight_decay = 5e-4
     momentum=0.4
 
-    bias_model_lambda = 0.5
+    bias_model_lambda = 0.01

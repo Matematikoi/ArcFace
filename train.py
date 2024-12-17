@@ -147,8 +147,8 @@ if __name__ == '__main__':
 
                 start = time.time()
 
-        # if i % opt.save_interval == 0 or i == opt.max_epoch:
-        #     save_model(model, opt.checkpoints_path, opt.backbone, i)
+        if i % opt.save_interval == 0 or i == opt.max_epoch:
+            save_model(model, opt.checkpoints_path, opt.backbone, i)
 
         model.eval()
         test_acc = []
@@ -162,8 +162,14 @@ if __name__ == '__main__':
                 data_input = data_input.to(device)
                 label = label.to(device).long()
                 feature = model(data_input)
-                output = metric_fc(feature, label)
-                loss = criterion(output, label)
+                if opt.metric == 'bias':
+                    bias, output = metric_fc(feature, label)
+                    loss_arcface = criterion_no_reduction(output, label)
+                    loss_prediction = ((bias-loss_arcface) ** 2).mean()
+                    loss = criterion(output,label) + opt.bias_model_lambda * loss_prediction
+                else: 
+                    output = metric_fc(feature, label)
+                    loss = criterion(output, label)
                 iters = i * len(trainloader) + ii
 
                 output = output.data.cpu().numpy()
