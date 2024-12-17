@@ -2,7 +2,7 @@ class Config(object):
     env = 'default'
     backbone = 'resnet18'
     classify = 'softmax'
-    num_classes = 10572
+    num_classes = 2000
     metric = 'arc_margin'
     easy_margin = False
     use_se = False
@@ -12,11 +12,11 @@ class Config(object):
     finetune = False
 
     # /home/mathos/Documents/cs/bdrp/repos/arcface-pytorch
-    train_root = './data/imgs_subset/train/'
+    train_root = './data/imgs_subset_2000/train/'
     train_list = './lfw_test_pair.txt'
     val_list = './lfw_test_pair.txt'
 
-    test_root = './data/imgs_subset/test'
+    test_root = './data/imgs_subset_2000/test'
     test_list = './lfw_test_pair.txt'
 
     lfw_root = './data/imgs_subset/'
@@ -32,18 +32,19 @@ class Config(object):
 
     input_shape = (3, 112, 112)
 
-    optimizer = 'sgd'
+    optimizer = 'adam'
 
     use_gpu = True  # use GPU or not
     gpu_id = '0, 1'
-    num_workers = 4  # how many workers for loading data
+    num_workers = 12  # how many workers for loading data
     print_freq = 100  # print info every N batch
 
     debug_file = '/tmp/debug'  # if os.path.exists(debug_file): enter ipdb
     result_file = 'result.csv'
 
-    max_epoch = 30
-    lr = 0.25  # initial learning rate
-    lr_step = 10
+    max_epoch = 100
+    lr = 5e-4  # initial learning rate
+    lr_step = 5000
     lr_decay = 0.95  # when val_loss increase, lr = lr*lr_decay
     weight_decay = 5e-4
+    momentum=0.4
