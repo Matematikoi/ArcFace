@@ -50,3 +50,4 @@ class Config(object):
     momentum=0.4
 
     bias_model_lambda = 0.01
+    num_bias_embedding = 256 # Size of the embedding used for bias prediction
