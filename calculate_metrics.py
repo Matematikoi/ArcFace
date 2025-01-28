@@ -1,7 +1,7 @@
-
 import torch
 import torch.nn as nn
 from torchvision import transforms
+from torch.utils.data import Dataset, DataLoader
 from models import *
 from sklearn.model_selection import KFold
 import numpy as np
@@ -12,109 +12,24 @@ import os
 import pandas as pd
 import datetime
 
+class ImageDataset(Dataset):
+    """Dataset to load images in batches"""
+    def __init__(self, image_paths, transform):
+        self.image_paths = image_paths
+        self.transform = transform
 
-def get_embedding(img_path, transform, model):
-    pil_image = Image.open(img_path)
-    pil_image = transform(pil_image)
-    embeding = model(pil_image.unsqueeze(0))
-    # print(embeding.shape)
-    return embeding
+    def __len__(self):
+        return len(self.image_paths)
 
-def get_random_image(classes, validation_folder):
-    random_class = np.random.choice(classes)
-    class_folder = os.path.join(validation_folder, random_class)
-    images = os.listdir(class_folder)
-    random_image = np.random.choice(images)
-    image_path = os.path.join(class_folder, random_image)
-    return image_path, random_class
-
-def get_random_image_from_class(class_folder):
-    images = os.listdir(class_folder)
-    random_image = np.random.choice(images)
-    image_path = os.path.join(class_folder, random_image)
-    return image_path
-
-def l2_distance_torch(embedding1, embedding2):
-    """Computes the L2 (Euclidean) distance between two embeddings."""
-    return torch.linalg.vector_norm(embedding1 - embedding2).item()
-
-def get_different_pair_distances(validation_folder, transform, model, n):
-    classes = os.listdir(validation_folder)
-    distances = []
-    cnt = 0
-    seen_pairs = set()
-    print('Getting different pair distances')
-    with tqdm(total=n) as pbar:
-        while cnt < n:
-            # Select two random images
-            image_path_1, class_1 = get_random_image(classes, validation_folder)
-            image_path_2, class_2 = get_random_image(classes, validation_folder)
-            # Check that the classes are different
-            if class_1 == class_2 or (image_path_1, image_path_2) in seen_pairs:
-                continue
-            seen_pairs.add((image_path_1, image_path_2))
-            seen_pairs.add((image_path_2, image_path_1))
-
-            embedding_1 = get_embedding(image_path_1, transform, model)
-            embedding_2 = get_embedding(image_path_2, transform, model)
-            distances.append(l2_distance_torch(embedding_1, embedding_2))
-            cnt += 1
-            pbar.update(1)
-    return distances
-
-def get_same_pair_distances(validation_folder, transform, model, n):
-    classes = os.listdir(validation_folder)
-    distances = []
-    cnt = 0
-    seen_pairs = set()
-
-    print('Getting same pair distances')
-    with tqdm(total=n) as pbar:
-        while cnt < n:
-            image_path_1, class_1 = get_random_image(classes, validation_folder)
-            image_path_2 = get_random_image_from_class(os.path.join(validation_folder, class_1))
-
-            # Check the images are different
-            if (image_path_1, image_path_2) in seen_pairs or image_path_1 == image_path_2:
-                continue
-            seen_pairs.add((image_path_1, image_path_2))
-            seen_pairs.add((image_path_2, image_path_1))
-
-            embedding_1 = get_embedding(image_path_1, transform, model)
-            embedding_2 = get_embedding(image_path_2, transform, model)
-
-            distances.append(l2_distance_torch(embedding_1, embedding_2))
-            cnt += 1
-            pbar.update(1)
-    return distances
-
-
-def optimal_threshold(distances, ground_truth):
-    """
-    Calculate the optimal threshold for a binary classification problem using the ROC curve and Youden's J statistic.
-
-    Parameters:
-    distances (list or numpy array): The predicted distances or probabilities for the positive class.
-    ground_truth (list or numpy array): The ground truth binary labels (0 or 1).
-
-    Returns:
-    float: The optimal threshold value that maximizes Youden's J statistic.
-
-    Notes:
-    - The function assumes that the positive class is labeled as 0.
-    - The ROC curve is calculated using the `roc_curve` function from the `sklearn.metrics` module.
-    - Youden's J statistic is defined as `tpr - fpr`, where `tpr` is the true positive rate and `fpr` is the false positive rate.
-    """
-    # Calculate the ROC curve
-    fpr, tpr, thresholds = roc_curve( (np.array(ground_truth).astype(int)), distances, pos_label=0)
-
-    # Calculate Youden's J statistic
-    youden_j = tpr - fpr
-
-    # Find the optimal threshold
-    optimal_idx = np.argmax(youden_j)
-    optimal_threshold = thresholds[optimal_idx]
-    return optimal_threshold
+    def __getitem__(self, idx):
+        path = self.image_paths[idx]
+        try:
+            image = Image.open(path).convert('RGB')
+            image = self.transform(image)
+            return path, image
+        except Exception as e:
+            print(f"Error loading image {path}: {e}")
+            return None, None
 
 def load_model_from_checkpoint(model_path):
     # Load model from function in train.py
@@ -131,64 +46,89 @@ def load_model_from_checkpoint(model_path):
     # model.load_state_dict(torch.load(model_path, weights_only=True))
     model.eval()
     return model
-    
-# Calculate accuracy given a threshold using numpy
-def calculate_accuracy(distances, ground_truth, threshold):
-    """Calculates the accuracy given a threshold."""
-    predictions = (distances < threshold).astype(int)
-    accuracy = (predictions == ground_truth).astype(float).mean()
-    
-    return accuracy
-
-def calculate_kfold_accuracy(distances, ground_truth, df):
-    accuracies = []
-    kf = KFold(n_splits=10, shuffle=True, random_state=42)
-    result = pd.DataFrame()
-    for test_index, train_index  in kf.split(distances):
-        distances_train = distances[train_index]
-        ground_truth_train = ground_truth[train_index]
-        distances_test = distances[test_index]
-        ground_truth_test = ground_truth[test_index]
-        threshold = optimal_threshold(distances_train, ground_truth_train)
-        accuracy = calculate_accuracy(distances_test, ground_truth_test, threshold)
-        
-        df_test = df.iloc[test_index].copy()
-        df_test['preds'] = (distances_test < threshold).astype(int)
-
-
-        result = pd.concat([result, df_test], ignore_index=True)
-        accuracies.append(accuracy)
-    return np.mean(accuracies), result
 
 def get_distances_from_df(df, transform, model):
-	distances = []
-	# embeddings_cache = {}
+    # Collect all image paths and pair mappings
+    unique_images = set()
+    paths1 = []
+    paths2 = []
+    
+    for index, row in tqdm(df.iterrows(), total=len(df), desc='Collecting paths'):
+        img1 = row['img_1']
+        img2 = row['img_2']
+        ethnicity = row['ethnicity']
+        
+        # Generate paths
+        dir_part1 = '_'.join(img1.split('_')[:-1]) + '-' + ethnicity.split(' ')[0]
+        path1 = os.path.join('./data/RFW/aligned_imgs', dir_part1, img1)
+        
+        dir_part2 = '_'.join(img2.split('_')[:-1]) + '-' + ethnicity.split(' ')[-1]
+        path2 = os.path.join('./data/RFW/aligned_imgs', dir_part2, img2)
+        
+        unique_images.update([path1, path2])
+        paths1.append(path1)
+        paths2.append(path2)
 
-	for i in tqdm(range(len(df))):
-		image_path_1 = f'./data/RFW/aligned_imgs/{'_'.join(df.iloc[i].img_1.split('_')[0:-1])}-{df.iloc[i].ethnicity.split(' ')[0]}/{df.iloc[i].img_1}'
-		image_path_2 = f'./data/RFW/aligned_imgs/{'_'.join(df.iloc[i].img_2.split('_')[0:-1])}-{df.iloc[i].ethnicity.split(' ')[-1]}/{df.iloc[i].img_2}'
-		embedding_2 = get_embedding(image_path_2, transform, model)
-		embedding_1 = get_embedding(image_path_1, transform, model)
-		distances.append(l2_distance_torch(embedding_1, embedding_2))
-	return distances
+    # Batch process all unique images
+    unique_images = list(unique_images)
+    dataset = ImageDataset(unique_images, transform)
+    dataloader = DataLoader(
+        dataset, 
+        batch_size=256, 
+        shuffle=False, 
+        num_workers=os.cpu_count(), 
+        pin_memory=True,
+        collate_fn=lambda x: [item for item in x if item[0] is not None]
+    )
+
+    # Cache embeddings
+    embedding_cache = {}
+    device = next(model.parameters()).device
+    
+    model.eval()
+    with torch.no_grad():
+        for batch in tqdm(dataloader, desc='Processing images'):
+            batch_paths, batch_images = zip(*batch)
+            batch_images = torch.stack(batch_images).to(device)
+            batch_embeddings = model(batch_images).cpu()
+            
+            for path, embedding in zip(batch_paths, batch_embeddings):
+                embedding_cache[path] = embedding
+
+    # Vectorized distance calculation
+    embeddings1 = [embedding_cache[path] for path in paths1]
+    embeddings2 = [embedding_cache[path] for path in paths2]
+    
+    distances = torch.linalg.vector_norm(
+        torch.stack(embeddings1) - torch.stack(embeddings2),
+        dim=1
+    ).numpy()
+
+    return distances
+
+# The rest of the functions remain the same except for removing get_embedding
+# and modifying main() to remove normalization if not needed
 
 def main():
     np.random.seed(88)
-    model_path = 'checkpoints/resnet18_29.pth'
-    model = load_model_from_checkpoint(model_path)
-    validation_folder = 'data/imgs_subset_complete/validation'
+    model = load_model_from_checkpoint('checkpoints/resnet18_99.pth')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = model.to(device)
 
     transform = transforms.Compose([
         transforms.Resize((112, 112)),
         transforms.ToTensor(),
         transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
     ])
+    
     df = pd.read_csv('./data/RFW/rfw.csv')
     distances = get_distances_from_df(df, transform, model)
+    
     df['dist'] = distances
-    df['dist'] = df['dist'] / df['dist'].mean()
+    # df['dist'] = df['dist'] / df['dist'].mean()  # Only if needed
+    
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    df[['img_1', 'img_2', 'dist']].to_csv(f'../FaVFA/model_results/results_arcface_{timestamp}.csv', index=False)
+    df[['img_1', 'img_2', 'dist']].to_csv(f'results_arcface_{timestamp}.csv', index=False)
 
 if __name__ == '__main__':
     main()
