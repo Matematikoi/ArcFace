@@ -11,7 +11,14 @@ from tqdm import tqdm
 import os
 import pandas as pd
 import datetime
+from dataclasses import dataclass
+from typing import List
 
+@dataclass
+class ImagePaths:
+    paths1: List[str]
+    paths2: List[str]
+    unique_images: List[str]
 class ImageDataset(Dataset):
     """Dataset to load images in batches"""
     def __init__(self, image_paths, transform):
@@ -35,7 +42,7 @@ def load_model_from_checkpoint(model_path):
     # Load model from function in train.py
     model = resnet_face18(use_se=False)
     model_dict = model.state_dict()
-    pretrained_dict = torch.load(model_path)
+    pretrained_dict = torch.load(model_path, weights_only=False)
     
     # Remove 'module.' prefix if present
     pretrained_dict = {k.replace('module.', ''): v for k, v in pretrained_dict.items()}
@@ -47,7 +54,57 @@ def load_model_from_checkpoint(model_path):
     model.eval()
     return model
 
-def get_distances_from_df(df, transform, model):
+def optimal_threshold(distances, ground_truth):
+    """
+    Calculate the optimal threshold for a binary classification problem using the ROC curve and Youden's J statistic.
+
+    Parameters:
+    distances (list or numpy array): The predicted distances or probabilities for the positive class.
+    ground_truth (list or numpy array): The ground truth binary labels (0 or 1).
+
+    Returns:
+    float: The optimal threshold value that maximizes Youden's J statistic.
+
+    Notes:
+    - The function assumes that the positive class is labeled as 0.
+    - The ROC curve is calculated using the `roc_curve` function from the `sklearn.metrics` module.
+    - Youden's J statistic is defined as `tpr - fpr`, where `tpr` is the true positive rate and `fpr` is the false positive rate.
+    """
+    # Calculate the ROC curve
+    fpr, tpr, thresholds = roc_curve( (np.array(ground_truth).astype(int)), distances, pos_label=0)
+
+    # Calculate Youden's J statistic
+    youden_j = tpr - fpr
+
+    # Find the optimal threshold
+    optimal_idx = np.argmax(youden_j)
+    optimal_threshold = thresholds[optimal_idx]
+    return optimal_threshold
+
+# Calculate accuracy given a threshold using numpy
+def calculate_accuracy(distances, ground_truth, threshold):
+    """Calculates the accuracy given a threshold."""
+    predictions = (distances < threshold).astype(int)
+    accuracy = (predictions == ground_truth).astype(float).mean()
+    
+    return accuracy
+
+def calculate_kfold_accuracy(distances, ground_truth):
+    accuracies = []
+    kf = KFold(n_splits=10, shuffle=True, random_state=42)
+    result = pd.DataFrame()
+    for test_index, train_index  in kf.split(distances):
+        distances_train = distances[train_index]
+        ground_truth_train = ground_truth[train_index]
+        distances_test = distances[test_index]
+        ground_truth_test = ground_truth[test_index]
+        threshold = optimal_threshold(distances_train, ground_truth_train)
+        accuracy = calculate_accuracy(distances_test, ground_truth_test, threshold)
+        
+        accuracies.append(accuracy)
+    return np.mean(accuracies)
+
+def get_rfw_paths(df):
     # Collect all image paths and pair mappings
     unique_images = set()
     paths1 = []
@@ -71,7 +128,35 @@ def get_distances_from_df(df, transform, model):
 
     # Batch process all unique images
     unique_images = list(unique_images)
-    dataset = ImageDataset(unique_images, transform)
+    return ImagePaths(paths1=paths1, paths2=paths2, unique_images=unique_images)
+
+def get_lfw_paths(df):
+    # Collect all image paths and pair mappings
+    unique_images = set()
+    paths1 = []
+    paths2 = []
+    
+    for index, row in tqdm(df.iterrows(), total=len(df), desc='Collecting paths'):
+        img1 = row['img_1']
+        img2 = row['img_2']
+        
+        # Generate paths
+        path1 = os.path.join('./data/imgs_', img1)
+        
+        path2 = os.path.join('./data/imgs_', img2)
+        
+        unique_images.update([path1, path2])
+        paths1.append(path1)
+        paths2.append(path2)
+
+    # Batch process all unique images
+    unique_images = list(unique_images)
+    return ImagePaths(paths1=paths1, paths2=paths2, unique_images=unique_images)
+
+
+
+def get_distances_from_paths(imagePaths, transform, model):
+    dataset = ImageDataset(imagePaths.unique_images, transform)
     dataloader = DataLoader(
         dataset, 
         batch_size=256, 
@@ -96,8 +181,8 @@ def get_distances_from_df(df, transform, model):
                 embedding_cache[path] = embedding
 
     # Vectorized distance calculation
-    embeddings1 = [embedding_cache[path] for path in paths1]
-    embeddings2 = [embedding_cache[path] for path in paths2]
+    embeddings1 = [embedding_cache[path] for path in imagePaths.paths1]
+    embeddings2 = [embedding_cache[path] for path in imagePaths.paths2]
     
     distances = torch.linalg.vector_norm(
         torch.stack(embeddings1) - torch.stack(embeddings2),
@@ -108,12 +193,12 @@ def get_distances_from_df(df, transform, model):
 
 # The rest of the functions remain the same except for removing get_embedding
 # and modifying main() to remove normalization if not needed
-
-def main():
-    np.random.seed(88)
-    model = load_model_from_checkpoint('checkpoints/resnet18_99.pth')
+def calculate_for_rfw(checkpoint_path):
+    model = load_model_from_checkpoint(checkpoint_path)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
+    df = pd.read_csv('./data/RFW/rfw.csv')
+    imagePaths = get_rfw_paths(df)
 
     transform = transforms.Compose([
         transforms.Resize((112, 112)),
@@ -121,11 +206,35 @@ def main():
         transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
     ])
     
-    df = pd.read_csv('./data/RFW/rfw.csv')
-    distances = get_distances_from_df(df, transform, model)
+    distances = get_distances_from_paths(imagePaths, transform, model)
+    print(f'\n The calculated accuracy is : {calculate_kfold_accuracy(distances, df.y_true)}')
+    df['dist'] = distances
+    return distances, df
+
+def calculate_for_lfw(checkpoint_path):
+    model = load_model_from_checkpoint(checkpoint_path)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = model.to(device)
+    df = pd.read_csv('./lfw_test_pair.txt', sep = ' ')
+    imagePahts = get_lfw_paths(df)
+
+    transform = transforms.Compose([
+        transforms.Resize((112, 112)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+    ])
+    
+    distances = get_distances_from_paths(imagePahts, transform, model)
+    print(f'\n The calculated accuracy is : {calculate_kfold_accuracy(distances, df.y_true)}')
+    df['dist'] = distances
+    return distances, df
+
+
+def main():
+    np.random.seed(88)
+    distances, df = calculate_for_rfw('checkpoints/resnet18_99.pth')
     
     df['dist'] = distances
-    # df['dist'] = df['dist'] / df['dist'].mean()  # Only if needed
     
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     df[['img_1', 'img_2', 'dist']].to_csv(f'results_arcface_{timestamp}.csv', index=False)
