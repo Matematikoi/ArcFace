@@ -180,7 +180,13 @@ def get_distances_from_paths(imagePaths, transform, model):
             
             for path, embedding in zip(batch_paths, batch_embeddings):
                 embedding_cache[path] = embedding
-
+                
+                for path, embedding in zip(batch_paths, batch_embeddings):
+                    if embedding.dim() == 1:
+                        embedding = embedding.unsqueeze(0)
+                        embedding[:, :256] = torch.nn.functional.normalize(embedding[:, :256], dim=1)
+                        embedding[:, 256:] = torch.nn.functional.normalize(embedding[:, 256:], dim=1)
+                        embedding = torch.nn.functional.normalize(embedding, dim=1)
     # Vectorized distance calculation
     embeddings1 = [embedding_cache[path] for path in imagePaths.paths1]
     embeddings2 = [embedding_cache[path] for path in imagePaths.paths2]
@@ -232,7 +238,7 @@ def calculate_for_lfw(checkpoint_path):
 
 
 def main():
-    model_path = 'checkpoints/resnet18_25.pth'
+    model_path = 'checkpoints_arcface_70acc_lambda/resnet18_99.pth'
     calculate_for_lfw(model_path)
     distances, df = calculate_for_rfw(model_path)
     
