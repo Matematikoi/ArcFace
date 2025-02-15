@@ -52,7 +52,21 @@ def load_data(opt):
     test_loader = DataLoader(test_dataset, batch_size=opt.test_batch_size, shuffle=False, num_workers=opt.num_workers)
     return train_loader, test_loader
 
+def set_seed(seed=42):
+    # Python's built-in random module
+    random.seed(seed)
+    # Numpy's random module
+    np.random.seed(seed)
+    # PyTorch seed for CPU
+    torch.manual_seed(seed)
+    # PyTorch seed for all GPU devices (if using CUDA)
+    torch.cuda.manual_seed_all(seed)
+    # Make sure to disable CuDNN's non-deterministic optimizations
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 if __name__ == '__main__':
+    set_seed()
 
     opt = Config()
     if opt.display:
@@ -67,6 +81,7 @@ if __name__ == '__main__':
         criterion = FocalLoss(gamma=2)
     else:
         criterion = torch.nn.CrossEntropyLoss()
+        criterion_no_reduction = torch.nn.CrossEntropyLoss(reduction = 'none')
 
     if opt.backbone == 'resnet18':
         model = resnet_face18(use_se=opt.use_se)
@@ -82,6 +97,8 @@ if __name__ == '__main__':
         metric_fc = ArcMarginProduct(512, opt.num_classes, s=30, m=0.5, easy_margin=opt.easy_margin)
     elif opt.metric == 'sphere':
         metric_fc = SphereProduct(512, opt.num_classes, m=4)
+    elif opt.metric == 'bias':
+        metric_fc = BiasLoss(512, opt.num_bias_embedding, opt.num_classes, s=30, m=0.5, easy_margin= opt.easy_margin)
     else:
         metric_fc = nn.Linear(512, opt.num_classes)
 
@@ -112,8 +129,14 @@ if __name__ == '__main__':
             data_input = data_input.to(device)
             label = label.to(device).long()
             feature = model(data_input)
-            output = metric_fc(feature, label)
-            loss = criterion(output, label)
+            if opt.metric == 'bias':
+                bias, output = metric_fc(feature, label)
+                loss_arcface = criterion_no_reduction(output, label)
+                loss_prediction = ((bias-loss_arcface) ** 2).mean()
+                loss = criterion(output,label) + opt.bias_model_lambda * loss_prediction
+            else: 
+                output = metric_fc(feature, label)
+                loss = criterion(output, label)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -128,7 +151,10 @@ if __name__ == '__main__':
                 acc = np.mean((output == label).astype(int))
                 speed = opt.print_freq / (time.time() - start)
                 time_str = time.asctime(time.localtime(time.time()))
-                print('{} train epoch {} iter {} {} iters/s loss {} acc {}'.format(time_str, i, ii, speed, loss.item(), acc))
+                if opt.metric !='bias':
+                    print('{} train epoch {} iter {} {} iters/s loss {} acc {}'.format(time_str, i, ii, speed, loss.item(), acc))
+                else : 
+                    print('{} train epoch {} iter {} {} iters/s loss total {} loss prediction {} acc {}'.format(time_str, i, ii, speed, loss.item(),loss_prediction.item(), acc))
                 if opt.display:
                     visualizer.display_current_results(iters, loss.item(), name='train_loss')
                     visualizer.display_current_results(iters, acc, name='train_acc')
@@ -150,8 +176,14 @@ if __name__ == '__main__':
                 data_input = data_input.to(device)
                 label = label.to(device).long()
                 feature = model(data_input)
-                output = metric_fc(feature, label)
-                loss = criterion(output, label)
+                if opt.metric == 'bias':
+                    bias, output = metric_fc(feature, label)
+                    loss_arcface = criterion_no_reduction(output, label)
+                    loss_prediction = ((bias-loss_arcface) ** 2).mean()
+                    loss = criterion(output,label) + opt.bias_model_lambda * loss_prediction
+                else: 
+                    output = metric_fc(feature, label)
+                    loss = criterion(output, label)
                 iters = i * len(trainloader) + ii
 
                 output = output.data.cpu().numpy()
