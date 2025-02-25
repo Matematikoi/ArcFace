@@ -156,7 +156,7 @@ def get_lfw_paths(df):
 
 
 
-def get_distances_from_paths(imagePaths, transform, model, num_bias_embedding):
+def get_distances_from_paths(imagePaths, transform, model):
     dataset = ImageDataset(imagePaths.unique_images, transform)
     dataloader = DataLoader(
         dataset, 
@@ -181,8 +181,6 @@ def get_distances_from_paths(imagePaths, transform, model, num_bias_embedding):
             if batch_embeddings.dim() == 1:
                 batch_embeddings = batch_embeddings.unsqueeze(0)
 
-            batch_embeddings[:, :num_bias_embedding] = torch.nn.functional.normalize(batch_embeddings[:, :num_bias_embedding], dim=1)
-            batch_embeddings[:, num_bias_embedding:] = torch.nn.functional.normalize(batch_embeddings[:, num_bias_embedding:], dim=1)
             batch_embeddings = torch.nn.functional.normalize(batch_embeddings, dim=1)
 
             for path, embedding in zip(batch_paths, batch_embeddings):
@@ -200,7 +198,7 @@ def get_distances_from_paths(imagePaths, transform, model, num_bias_embedding):
 
 # The rest of the functions remain the same except for removing get_embedding
 # and modifying main() to remove normalization if not needed
-def calculate_for_rfw(checkpoint_path, num_bias_embedding):
+def calculate_for_rfw(checkpoint_path):
     model = load_model_from_checkpoint(checkpoint_path)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
@@ -213,12 +211,12 @@ def calculate_for_rfw(checkpoint_path, num_bias_embedding):
         transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
     ])
     
-    distances = get_distances_from_paths(imagePaths, transform, model, num_bias_embedding)
+    distances = get_distances_from_paths(imagePaths, transform, model)
     print(f'\n The calculated accuracy for RFW is : {calculate_kfold_accuracy(distances, df.y_true)}')
     df['dist'] = distances
     return distances, df
 
-def calculate_for_lfw(checkpoint_path, num_bias_embedding):
+def calculate_for_lfw(checkpoint_path):
     model = load_model_from_checkpoint(checkpoint_path)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
@@ -231,22 +229,21 @@ def calculate_for_lfw(checkpoint_path, num_bias_embedding):
         transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
     ])
     
-    distances = get_distances_from_paths(imagePahts, transform, model, num_bias_embedding)
+    distances = get_distances_from_paths(imagePahts, transform, model)
     print(f'\n The calculated accuracy for LFW is : {calculate_kfold_accuracy(distances, df.y_true)}')
     df['dist'] = distances
     return distances, df
 
 
 def main():
-    num_bias_embedding = 256
     model_path = 'checkpoints_arcface_70acc_lambda/resnet18_99.pth'
-    calculate_for_lfw(model_path, num_bias_embedding)
-    distances, df = calculate_for_rfw(model_path, num_bias_embedding)
+    calculate_for_lfw(model_path)
+    distances, df = calculate_for_rfw(model_path)
     
     df['dist'] = distances
     
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    df[['img_1', 'img_2', 'dist']].to_csv(f'results_arcface_{timestamp}.csv', index=False)
+    # df[['img_1', 'img_2', 'dist']].to_csv(f'results_arcface_{timestamp}.csv', index=False)
 
 if __name__ == '__main__':
     main()
