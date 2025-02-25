@@ -132,7 +132,7 @@ if __name__ == '__main__':
             if opt.metric == 'bias':
                 bias, output = metric_fc(feature, label)
                 loss_arcface = criterion_no_reduction(output, label)
-                loss_prediction = ((bias-loss_arcface) ** 2).mean()
+                loss_prediction = ((bias-loss_arcface.item()) ** 2).mean()
                 loss = criterion(output,label) + opt.bias_model_lambda * loss_prediction
             else: 
                 output = metric_fc(feature, label)
