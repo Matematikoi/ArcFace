@@ -14,6 +14,9 @@ import pandas as pd
 import datetime
 from dataclasses import dataclass
 from typing import List
+import ast
+import matplotlib.pyplot as plt
+from sklearn.manifold import TSNE
 
 @dataclass
 class ImagePaths:
@@ -106,95 +109,57 @@ def calculate_kfold_accuracy(distances, ground_truth):
     return np.mean(accuracies)
 
 def get_rfw_paths(df):
+    result = []
     # Collect all image paths and pair mappings
-    unique_images = set()
-    paths1 = []
-    paths2 = []
-    
     for _, row in tqdm(df.iterrows(), total=len(df), desc='Collecting paths'):
-        img1 = row['img_1']
-        img2 = row['img_2']
+        img = row['img_id']
         ethnicity = row['ethnicity']
         
         # Generate paths
-        dir_part1 = '_'.join(img1.split('_')[:-1]) + '-' + ethnicity.split(' ')[0]
-        path1 = os.path.join('./data/RFW/aligned_imgs', dir_part1, img1)
-        
-        dir_part2 = '_'.join(img2.split('_')[:-1]) + '-' + ethnicity.split(' ')[-1]
-        path2 = os.path.join('./data/RFW/aligned_imgs', dir_part2, img2)
-        
-        unique_images.update([path1, path2])
-        paths1.append(path1)
-        paths2.append(path2)
-
-    # Batch process all unique images
-    unique_images = list(unique_images)
-    return ImagePaths(paths1=paths1, paths2=paths2, unique_images=unique_images)
-
-def get_lfw_paths(df):
-    # Collect all image paths and pair mappings
-    unique_images = set()
-    paths1 = []
-    paths2 = []
-    
-    for _, row in tqdm(df.iterrows(), total=len(df), desc='Collecting paths'):
-        img1 = row['img_1']
-        img2 = row['img_2']
-        
-        # Generate paths
-        path1 = os.path.join('./data/imgs_', img1)
-        
-        path2 = os.path.join('./data/imgs_', img2)
-        
-        unique_images.update([path1, path2])
-        paths1.append(path1)
-        paths2.append(path2)
-
-    # Batch process all unique images
-    unique_images = list(unique_images)
-    return ImagePaths(paths1=paths1, paths2=paths2, unique_images=unique_images)
-
+        dir_part = '_'.join(img.split('_')[:-1]) + '-' + ethnicity
+        path = os.path.join('./data/RFW/aligned_imgs', dir_part, img)
+        result.append(path)
+    return result
 
 
 def get_distances_from_paths(imagePaths, transform, model):
-    dataset = ImageDataset(imagePaths.unique_images, transform)
+    dataset = ImageDataset(imagePaths, transform)
     dataloader = DataLoader(
         dataset, 
         batch_size=256, 
         shuffle=False, 
         num_workers=os.cpu_count(), 
         pin_memory=True,
-        collate_fn=lambda x: [item for item in x if item[0] is not None]
     )
 
     # Cache embeddings
     embedding_cache = {}
     device = next(model.parameters()).device
-    
+
     model.eval()
     with torch.no_grad():
         for batch in tqdm(dataloader, desc='Processing images'):
-            batch_paths, batch_images = zip(*batch)
-            batch_images = torch.stack(batch_images).to(device)
+            if not batch:  # Skip empty batches
+                continue
+
+            batch_paths, batch_images = batch
+
+            # If batch_images is a list, stack it into a single tensor.
+            if isinstance(batch_images, list):
+                if len(batch_images) == 0:
+                    continue
+                batch_images = torch.stack(batch_images)
+
+            # Always move the batch to the same device as the model.
+            batch_images = batch_images.to(device)
+
             batch_embeddings = model(batch_images).cpu()
-
-            if batch_embeddings.dim() == 1:
-                batch_embeddings = batch_embeddings.unsqueeze(0)
-
             batch_embeddings = torch.nn.functional.normalize(batch_embeddings, dim=1)
 
             for path, embedding in zip(batch_paths, batch_embeddings):
-                embedding_cache[path] = embedding
-    # Vectorized distance calculation
-    embeddings1 = [embedding_cache[path] for path in imagePaths.paths1]
-    embeddings2 = [embedding_cache[path] for path in imagePaths.paths2]
-    
-    distances = torch.linalg.vector_norm(
-        torch.stack(embeddings1) - torch.stack(embeddings2),
-        dim=1
-    ).numpy()
+                embedding_cache[path] = embedding.numpy()
 
-    return distances
+    return [embedding_cache[path] for path in imagePaths]
 
 # The rest of the functions remain the same except for removing get_embedding
 # and modifying main() to remove normalization if not needed
@@ -202,7 +167,7 @@ def calculate_for_rfw(checkpoint_path):
     model = load_model_from_checkpoint(checkpoint_path)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
-    df = pd.read_csv('./data/RFW/rfw.csv')
+    df = pd.read_csv('./data/RFW/rfw_by_demography.csv')
     imagePaths = get_rfw_paths(df)
 
     transform = transforms.Compose([
@@ -211,39 +176,52 @@ def calculate_for_rfw(checkpoint_path):
         transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
     ])
     
-    distances = get_distances_from_paths(imagePaths, transform, model)
-    print(f'\n The calculated accuracy for RFW is : {calculate_kfold_accuracy(distances, df.y_true)}')
-    df['dist'] = distances
-    return distances, df
-
-def calculate_for_lfw(checkpoint_path):
-    model = load_model_from_checkpoint(checkpoint_path)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = model.to(device)
-    df = pd.read_csv('./lfw_test_pair.txt', sep = ' ')
-    imagePahts = get_lfw_paths(df)
-
-    transform = transforms.Compose([
-        transforms.Resize((112, 112)),
-        transforms.ToTensor(),
-        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
-    ])
-    
-    distances = get_distances_from_paths(imagePahts, transform, model)
-    print(f'\n The calculated accuracy for LFW is : {calculate_kfold_accuracy(distances, df.y_true)}')
-    df['dist'] = distances
-    return distances, df
+    df['embeddings'] = get_distances_from_paths(imagePaths, transform, model)
+    return df
 
 
 def main():
     model_path = 'checkpoints_arcface_70acc_lambda/resnet18_99.pth'
-    calculate_for_lfw(model_path)
-    distances, df = calculate_for_rfw(model_path)
+    data = calculate_for_rfw(model_path)
     
-    df['dist'] = distances
-    
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    # df[['img_1', 'img_2', 'dist']].to_csv(f'results_arcface_{timestamp}.csv', index=False)
+    print(data.head())
+    # Convert embeddings from string to list if needed
+    data['embeddings'] = data['embeddings'].apply(lambda x: np.array(ast.literal_eval(x)) if isinstance(x, str) else x)
+
+    # Extract embeddings and labels
+    embeddings = np.vstack(data['embeddings'].values)
+    gender_labels = data['gender'].values
+    ethnicity_labels = data['ethnicity'].values
+
+    # Apply t-SNE
+    tsne = TSNE(n_components=2, random_state=42, perplexity=30, max_iter=500, learning_rate=200, method='barnes_hut', angle=0.5)
+    tsne_results = tsne.fit_transform(embeddings)
+
+    # Plot function
+    def plot_tsne(tsne_results, labels, title, filename, alpha=0.05):
+        plt.figure(figsize=(8, 6))
+        unique_labels = np.unique(labels)
+        scatter_objects = []
+        colors = plt.cm.get_cmap('Set1', len(unique_labels))
+        for i, label in enumerate(unique_labels):
+            idx = labels == label
+            scatter = plt.scatter(tsne_results[idx, 0], tsne_results[idx, 1], label=label, alpha=alpha, color=colors(i))
+            scatter_objects.append(scatter)
+        
+        # Create opaque legend markers
+        legend_markers = [plt.Line2D([0], [0], marker='o', color=colors(i), linestyle='None', markersize=8) for i in range(len(unique_labels))]
+        plt.legend(legend_markers, unique_labels, loc='best')
+        
+        plt.title(title)
+        plt.xlabel("t-SNE 1")
+        plt.ylabel("t-SNE 2")
+        plt.savefig(filename)
+        plt.close()
+    # Save t-SNE for gender
+    plot_tsne(tsne_results, gender_labels, "t-SNE Visualization by Gender", "tsne_gender.png")
+
+    # Save t-SNE for ethnicity
+    plot_tsne(tsne_results, ethnicity_labels, "t-SNE Visualization by Ethnicity", "tsne_ethnicity.png")
 
 if __name__ == '__main__':
     main()
